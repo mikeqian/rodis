@@ -1,0 +1,11 @@
+app = "rodis"
+version = 0.01
+owner = "rod6"
+
+listen = ":5056"
+loglevel = "debug"
+
+leveldbpath = "/Users/rod/Develop/db/rodis"
+
+[leveldb]
+blocksize = 2048
