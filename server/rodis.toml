@@ -2,7 +2,8 @@ app = "rodis"
 version = 0.01
 owner = "rod6"
 
-listen = ":5056"
+listen = ":6379"
+requirepass = "password"
 loglevel = "debug"
 
 leveldbpath = "/Users/rod/Develop/db/rodis"

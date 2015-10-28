@@ -16,6 +16,7 @@ type RodisConfig struct {
     Owner string
 
     Listen string
+    RequirePass string
 
     LogLevel string
 

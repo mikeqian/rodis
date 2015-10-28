@@ -12,54 +12,61 @@ import (
 
 type RESPType int
 const (
-    RESPWrongType        = iota     // wrong input
-    RESPSimpleStringType
-    RESPErrorType
-    RESPIntegerType
-    RESPBulkStringType
-    RESPArrayType
+    WrongType        = iota     // wrong input
+    SimpleStringType
+    ErrorType
+    IntegerType
+    BulkStringType
+    ArrayType
 )
 
-type RESPValue interface {
+type Value interface {
 	WriteTo(*bytes.Buffer) error
 }
 
 // RESP SimpleString
-type RESPSimpleString string
+type SimpleString string
+const OK  = SimpleString("OK")
+const PONG = SimpleString("PONG")
 
-func (s RESPSimpleString) WriteTo(w *bytes.Buffer) error {
+func (s SimpleString) WriteTo(w *bytes.Buffer) error {
 	_, err := fmt.Fprintf(w, "+%s\r\n", s)
 	return err
 }
 
-func (s RESPSimpleString) String() string {
+func (s SimpleString) String() string {
 	return string(s)
 }
 
 // RESP Integer
-type RESPInteger int64
+type Integer int64
 
-func (i RESPInteger) WriteTo(w *bytes.Buffer) error {
+func (i Integer) WriteTo(w *bytes.Buffer) error {
 	_, err := fmt.Fprintf(w, ":%d\r\n", i)
 	return err
 }
 
 // RESP Error
-type RESPError string
+type Error string
 
-func (e RESPError) Error() string {
+func NewError(format string, v ...interface{}) Error {
+    return Error(fmt.Sprintf(format, v...))
+}
+
+func (e Error) Error() string {
 	return string(e)
 }
 
-func (e RESPError) WriteTo(w *bytes.Buffer) error {
+func (e Error) WriteTo(w *bytes.Buffer) error {
 	_, err := fmt.Fprintf(w, "-%s\r\n", e)
 	return err
 }
 
 // RESP Bulk String
-type RESPBulkString []byte
+type BulkString []byte
+var NilBulkString = BulkString(nil)
 
-func (b RESPBulkString) WriteTo(w *bytes.Buffer) error {
+func (b BulkString) WriteTo(w *bytes.Buffer) error {
 	if b == nil {
 		_, err := fmt.Fprintf(w, "$-1\r\n")
 		return err
@@ -75,7 +82,7 @@ func (b RESPBulkString) WriteTo(w *bytes.Buffer) error {
 	return nil
 }
 
-func (b RESPBulkString) String() string {
+func (b BulkString) String() string {
     if b == nil {
         return ""
     }
@@ -84,9 +91,9 @@ func (b RESPBulkString) String() string {
 }
 
 // RESP Array
-type RESPArray []RESPValue
+type Array []Value
 
-func (a RESPArray) WriteTo(w *bytes.Buffer) error {
+func (a Array) WriteTo(w *bytes.Buffer) error {
 	if a == nil {
 		_, err := fmt.Fprintf(w, "*-1\r\n")
 		return err
@@ -103,4 +110,14 @@ func (a RESPArray) WriteTo(w *bytes.Buffer) error {
 	}
 
 	return nil
+}
+
+type CommandArgs []BulkString
+
+func (a Array) ToArgs() CommandArgs {
+    c := make(CommandArgs, len(a))
+    for i, v := range a {
+        c[i] = v.(BulkString)
+    }
+    return c
 }

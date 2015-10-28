@@ -24,11 +24,19 @@ type rodisConn struct {
     reader  *bufio.Reader
     server  *rodisServer
     buffer  bytes.Buffer
+    authed  bool
+    extras  *command.CommandExtras
 }
 
 func newConnection(conn net.Conn, rs *rodisServer) {
     uuid := uuid.New()
     rc := &rodisConn{uuid: uuid, conn: conn, reader: bufio.NewReader(conn), server: rs}
+
+    if rs.cfg.RequirePass == "" {
+        rc.authed = true
+    }
+
+    rc.extras = &command.CommandExtras{rs.db, &rc.buffer, rc.authed, rs.cfg.RequirePass}
 
     rc.server.mu.Lock()
     rs.conns[uuid] = rc
@@ -64,14 +72,14 @@ func (rc *rodisConn) handle() {
     }
 }
 
-func (rc *rodisConn) response(respType resp.RESPType, respValue resp.RESPValue) {
-    if respType != resp.RESPArrayType {         // All command from client should be RESPArrayType
+func (rc *rodisConn) response(respType resp.RESPType, respValue resp.Value) {
+    if respType != resp.ArrayType {         // All command from client should be RESPArrayType
         log6.Error("Connection %v get a WRONG format command from client.", rc.uuid)
         rc.conn.Write([]byte("-ERR wrong input format\r\n"))
         return
     }
 
-    err := command.Handle(&rc.buffer, rc.server.db, respValue.(resp.RESPArray))
+    err := command.Handle(respValue.(resp.Array), rc.extras)
     if err != nil {
         log6.Error("Connection %v get a server error: %v", rc.uuid, err)
         rc.conn.Write([]byte("-ERR server unknown error\r\n"))

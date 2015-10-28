@@ -19,10 +19,10 @@ import (
     "bufio"
 )
 
-func Parse(reader *bufio.Reader) (RESPType, RESPValue, error) {
+func Parse(reader *bufio.Reader) (RESPType, Value, error) {
     prefix, err := reader.ReadByte()
     if err != nil {
-        return RESPWrongType, nil, err
+        return WrongType, nil, err
     }
 
     switch prefix {
@@ -38,7 +38,7 @@ func Parse(reader *bufio.Reader) (RESPType, RESPValue, error) {
         return parseArray(reader)
     default:    // Inline Command
         if err := reader.UnreadByte(); err != nil {
-            return RESPWrongType, nil, err
+            return WrongType, nil, err
         }
         return parseInlineCommand(reader)
     }
@@ -81,91 +81,91 @@ func readInt(reader *bufio.Reader) (int64, error) {
 	return i * sign, nil
 }
 
-func parseSimpleString(reader *bufio.Reader) (RESPType, RESPSimpleString, error) {
+func parseSimpleString(reader *bufio.Reader) (RESPType, SimpleString, error) {
     line, err := readLine(reader)
     if err != nil {
-        return RESPSimpleStringType, RESPSimpleString(""), err
+        return SimpleStringType, SimpleString(""), err
     }
 
-	return RESPSimpleStringType, RESPSimpleString(line), nil
+	return SimpleStringType, SimpleString(line), nil
 }
 
-func parseInteger(reader *bufio.Reader) (RESPType, RESPInteger, error) {
+func parseInteger(reader *bufio.Reader) (RESPType, Integer, error) {
     i, err := readInt(reader)
     if err != nil {
-        return RESPIntegerType, RESPInteger(0), err
+        return IntegerType, Integer(0), err
     }
 
-	return RESPIntegerType, RESPInteger(i), nil
+	return IntegerType, Integer(i), nil
 }
 
-func parseError(reader *bufio.Reader) (RESPType, RESPError, error) {
+func parseError(reader *bufio.Reader) (RESPType, Error, error) {
     line, err := readLine(reader)
     if err != nil {
-        return RESPErrorType, RESPError(""), err
+        return ErrorType, Error(""), err
     }
 
-    return RESPErrorType, RESPError(line), nil
+    return ErrorType, Error(line), nil
 }
 
-func parseBulkString(reader *bufio.Reader) (RESPType, RESPBulkString, error) {
+func parseBulkString(reader *bufio.Reader) (RESPType, BulkString, error) {
 	i, err := readInt(reader)
     if err != nil {
-        return RESPBulkStringType, RESPBulkString(nil), err
+        return BulkStringType, BulkString(nil), err
     }
 
     if i == -1 {
-		return RESPBulkStringType, RESPBulkString(nil), nil
+		return BulkStringType, BulkString(nil), nil
 	}
 
 	b, err := reader.Peek(int(i))
     if err != nil {
-        return RESPBulkStringType, RESPBulkString(nil), err
+        return BulkStringType, BulkString(nil), err
     }
     reader.Discard(int(i) + 2)  // +2 for \r\n
 
-	return RESPBulkStringType, RESPBulkString(b), nil
+	return BulkStringType, BulkString(b), nil
 }
 
-func parseArray(reader *bufio.Reader) (RESPType, RESPArray, error) {
+func parseArray(reader *bufio.Reader) (RESPType, Array, error) {
     i, err := readInt(reader)
     if err != nil {
-        return RESPArrayType, RESPArray(nil), err
+        return ArrayType, Array(nil), err
     }
 
     if i == -1 {
-        return RESPArrayType, RESPArray(nil), nil
+        return ArrayType, Array(nil), nil
     }
 
-    arr := make(RESPArray, i)
+    arr := make(Array, i)
 	for i := range arr {
         _, v, err := Parse(reader)
         if err != nil {
-            return RESPArrayType, RESPArray(nil), err
+            return ArrayType, Array(nil), err
         }
 		arr[i] = v
 	}
-	return RESPArrayType, arr, nil
+	return ArrayType, arr, nil
 }
 
-func parseInlineCommand(reader *bufio.Reader) (RESPType, RESPArray, error) {
+func parseInlineCommand(reader *bufio.Reader) (RESPType, Array, error) {
 	line, err := readLine(reader)
 	if err != nil {
-		return RESPArrayType, RESPArray(nil), err
+		return ArrayType, Array(nil), err
 	}
 
-	var arr RESPArray
+	var arr Array
 	start := 0
 	for i := start; i < len(line); i++ {
 		switch line[i] {
 		case ' ':
 			if i != start {
-				arr = append(arr, append(RESPBulkString(nil), line[start:i]...))
+				arr = append(arr, append(BulkString(nil), line[start:i]...))
 				start = i
 			}
 			start++
 		}
 	}
 
-	return RESPArrayType, arr, nil
+	return ArrayType, arr, nil
 }
