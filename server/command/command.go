@@ -28,22 +28,35 @@ type CommandExtras struct {
 type commandFunc func(v resp.CommandArgs, ex *CommandExtras) (error)
 
 // command map attr struct
-type commandAttr struct {
+type attr struct {
     f   commandFunc // func for the command
     c   int         // arg count for the command
 }
 
 // commands, a map type with name as the key
-var commands = map[string] *commandAttr {
-    "auth": &commandAttr{f: auth, c: 2},
-    "ping": &commandAttr{f: ping, c: 1},
+var commands = map[string] *attr {
+    "auth": &attr{f: auth, c: 2},
+    "echo": &attr{f: echo, c: 2},
+    "ping": &attr{f: ping, c: 1},
+    "select": &attr{f: selectDB, c: 2},
 
-    "get":  &commandAttr{f: get, c: 2},
-    "set":  &commandAttr{f: set, c: 3},
+    "append": &attr{f: appendx, c: 3},
+    "bitcount": &attr{f: bitcount, c: 0},
+    "bitop": &attr{f: bitop, c: 0},
+    "getrange": &attr{f: getrange, c: 4},
+    "get":  &attr{f: get, c: 2},
+    "set":  &attr{f: set, c: 3},
+    "setnx": &attr{f: setnx, c: 3},
+    "getset": &attr{f: getset, c: 3},
+
+    "incr": &attr{f: incr, c: 2},
+    "incrby": &attr{f: incrby, c: 3},
+
+    "strlen": &attr{f: strlen, c: 2},
 }
 
 // Get command handler
-func findCmdFunc(c string) (*commandAttr, error) {
+func findCmdFunc(c string) (*attr, error) {
     a, ok := commands[c]
     if !ok {
         return nil, errors.New(fmt.Sprintf(`cannot find command '%s'`, c))
@@ -61,7 +74,7 @@ func Handle(v resp.Array, ex *CommandExtras) error {
     }
 
     args := v.ToArgs()
-    log6.Debug("Command handling:%v", humanArgs(args))
+    //log6.Debug("Command handling:%v", humanArgs(args))
 
     cmd := strings.ToLower(args[0].String())
     a, err := findCmdFunc(cmd)
@@ -77,7 +90,6 @@ func Handle(v resp.Array, ex *CommandExtras) error {
     if !ex.IsConnAuthed && ex.Password != "" && cmd != "auth" {
         return resp.NewError(ErrAuthed).WriteTo(ex.Buffer)
     }
-
 
     return a.f(args[1:], ex)
 }
@@ -98,4 +110,8 @@ const (
     ErrAuthed                   = `NOAUTH Authentication required.`
     ErrWrongPassword            = `ERR invalid password`
     ErrNoNeedPassword           = `ERR Client sent AUTH, but no password is set`
+    ErrSelectInvalidIndex       = `ERR invalid DB index`
+    ErrNotValidInt              = `ERR value is not an integer or out of range`
+    ErrBitOPNotError            = `ERR BITOP NOT must be called with a single source key.`
+    ErrSyntax                   = `ERR syntax error`
 )

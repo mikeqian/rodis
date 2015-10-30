@@ -12,12 +12,10 @@ import (
     "github.com/rod6/log6"
 
     "github.com/rod6/rodis/server/config"
-    "github.com/rod6/rodis/server/storage"
 )
 
 type rodisServer struct {
     cfg         *config.RodisConfig
-    db          *storage.LevelDB
     listener    net.Listener
     conns       map[string] *rodisConn
     mu          sync.Mutex
@@ -26,14 +24,7 @@ type rodisServer struct {
 }
 
 func NewServer(config config.RodisConfig) (*rodisServer, error) {
-    // Open backend leveldb. In rodis, the backend db is goleveldb.
-    ldb, err := storage.Open(config.LevelDBPath, config.LevelDB)
-    if err != nil {
-        log6.Fatal("Open LevelDB error: %v", err)
-        return nil, err
-    }
-
-    return &rodisServer{cfg: &config, db: ldb, conns: make(map[string] *rodisConn), quit: make(chan bool)}, nil
+    return &rodisServer{cfg: &config, conns: make(map[string] *rodisConn), quit: make(chan bool)}, nil
 }
 
 func (rs *rodisServer) Run() {
@@ -75,6 +66,5 @@ func (rs *rodisServer) Close() {
         }
         rs.started = false
     }
-    rs.db.Close()
     log6.Info("Server is down.")
 }

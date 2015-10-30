@@ -26,8 +26,8 @@ type Value interface {
 
 // RESP SimpleString
 type SimpleString string
-const OK  = SimpleString("OK")
-const PONG = SimpleString("PONG")
+const OkSimpleString  = SimpleString("OK")
+const PongSimpleString = SimpleString("PONG")
 
 func (s SimpleString) WriteTo(w *bytes.Buffer) error {
 	_, err := fmt.Fprintf(w, "+%s\r\n", s)
@@ -40,6 +40,10 @@ func (s SimpleString) String() string {
 
 // RESP Integer
 type Integer int64
+const (
+    ZeroInteger = Integer(0)
+    OneInteger = Integer(1)
+)
 
 func (i Integer) WriteTo(w *bytes.Buffer) error {
 	_, err := fmt.Fprintf(w, ":%d\r\n", i)
@@ -64,7 +68,10 @@ func (e Error) WriteTo(w *bytes.Buffer) error {
 
 // RESP Bulk String
 type BulkString []byte
-var NilBulkString = BulkString(nil)
+var (
+    NilBulkString = BulkString(nil)
+    EmptyBulkString = BulkString([]byte(""))
+)
 
 func (b BulkString) WriteTo(w *bytes.Buffer) error {
 	if b == nil {

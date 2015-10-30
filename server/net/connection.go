@@ -15,11 +15,13 @@ import (
     "github.com/pborman/uuid"
 
     "github.com/rod6/rodis/server/resp"
+    "github.com/rod6/rodis/server/storage"
     "github.com/rod6/rodis/server/command"
 )
 
 type rodisConn struct {
     uuid    string
+    db      *storage.LevelDB
     conn    net.Conn
     reader  *bufio.Reader
     server  *rodisServer
@@ -30,13 +32,13 @@ type rodisConn struct {
 
 func newConnection(conn net.Conn, rs *rodisServer) {
     uuid := uuid.New()
-    rc := &rodisConn{uuid: uuid, conn: conn, reader: bufio.NewReader(conn), server: rs}
+    rc := &rodisConn{uuid: uuid, db: storage.SelectStorage(0), conn: conn, reader: bufio.NewReader(conn), server: rs}
 
     if rs.cfg.RequirePass == "" {
         rc.authed = true
     }
 
-    rc.extras = &command.CommandExtras{rs.db, &rc.buffer, rc.authed, rs.cfg.RequirePass}
+    rc.extras = &command.CommandExtras{rc.db, &rc.buffer, rc.authed, rs.cfg.RequirePass}
 
     rc.server.mu.Lock()
     rs.conns[uuid] = rc

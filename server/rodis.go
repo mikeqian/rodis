@@ -14,6 +14,7 @@ import (
     "github.com/rod6/log6"
 
     "github.com/rod6/rodis/server/config"
+    "github.com/rod6/rodis/server/storage"
     "github.com/rod6/rodis/server/net"
 )
 
@@ -24,8 +25,13 @@ func main() {
     if err := config.LoadConfig(*configFile); err != nil {
         log6.Fatal("Load/Parse config file error: %v", err)
     }
-
     log6.ParseLevel(config.Config.LogLevel)
+
+    err := storage.OpenStorage(config.Config.LevelDBPath, config.Config.LevelDB)
+    if err != nil {
+        log6.Fatal("Open storage error: %v", err)
+    }
+    defer storage.CloseStorage()
 
     rs, err := net.NewServer(config.Config)
     if err != nil {
