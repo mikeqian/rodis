@@ -16,64 +16,64 @@
 package resp
 
 import (
-    "bufio"
+	"bufio"
 )
 
 func Parse(reader *bufio.Reader) (RESPType, Value, error) {
-    prefix, err := reader.ReadByte()
-    if err != nil {
-        return WrongType, nil, err
-    }
+	prefix, err := reader.ReadByte()
+	if err != nil {
+		return WrongType, nil, err
+	}
 
-    switch prefix {
-    case '+':   // Simple String
-        return parseSimpleString(reader)
-    case '-':   // Error
-        return parseError(reader)
-    case ':':   // Integer
-        return parseInteger(reader)
-    case '$':   // Bulk String
-        return parseBulkString(reader)
-    case '*':   // Array
-        return parseArray(reader)
-    default:    // Inline Command
-        if err := reader.UnreadByte(); err != nil {
-            return WrongType, nil, err
-        }
-        return parseInlineCommand(reader)
-    }
+	switch prefix {
+	case '+': // Simple String
+		return parseSimpleString(reader)
+	case '-': // Error
+		return parseError(reader)
+	case ':': // Integer
+		return parseInteger(reader)
+	case '$': // Bulk String
+		return parseBulkString(reader)
+	case '*': // Array
+		return parseArray(reader)
+	default: // Inline Command
+		if err := reader.UnreadByte(); err != nil {
+			return WrongType, nil, err
+		}
+		return parseInlineCommand(reader)
+	}
 }
 
 func readLine(reader *bufio.Reader) ([]byte, error) {
-    line := []byte{}
-    more := true
+	line := []byte{}
+	more := true
 
-    for more {
-        buf, isPrefix, err := reader.ReadLine()
-        if err != nil {
-            return nil, err
-        }
+	for more {
+		buf, isPrefix, err := reader.ReadLine()
+		if err != nil {
+			return nil, err
+		}
 
-        line = append(line, buf...)
-        more = isPrefix
-    }
+		line = append(line, buf...)
+		more = isPrefix
+	}
 
-    return line, nil
+	return line, nil
 }
 
 func readInt(reader *bufio.Reader) (int64, error) {
 	line, err := readLine(reader)
-    if err != nil {
-        return 0, err
-    }
+	if err != nil {
+		return 0, err
+	}
 
-    sign := int64(1)
+	sign := int64(1)
 	if line[0] == '-' {
 		sign = -1
 		line = line[1:]
 	}
 
-    i := int64(0)
+	i := int64(0)
 	for _, c := range line {
 		i = i*10 + int64(c-'0')
 	}
@@ -82,67 +82,67 @@ func readInt(reader *bufio.Reader) (int64, error) {
 }
 
 func parseSimpleString(reader *bufio.Reader) (RESPType, SimpleString, error) {
-    line, err := readLine(reader)
-    if err != nil {
-        return SimpleStringType, SimpleString(""), err
-    }
+	line, err := readLine(reader)
+	if err != nil {
+		return SimpleStringType, SimpleString(""), err
+	}
 
 	return SimpleStringType, SimpleString(line), nil
 }
 
 func parseInteger(reader *bufio.Reader) (RESPType, Integer, error) {
-    i, err := readInt(reader)
-    if err != nil {
-        return IntegerType, Integer(0), err
-    }
+	i, err := readInt(reader)
+	if err != nil {
+		return IntegerType, Integer(0), err
+	}
 
 	return IntegerType, Integer(i), nil
 }
 
 func parseError(reader *bufio.Reader) (RESPType, Error, error) {
-    line, err := readLine(reader)
-    if err != nil {
-        return ErrorType, Error(""), err
-    }
+	line, err := readLine(reader)
+	if err != nil {
+		return ErrorType, Error(""), err
+	}
 
-    return ErrorType, Error(line), nil
+	return ErrorType, Error(line), nil
 }
 
 func parseBulkString(reader *bufio.Reader) (RESPType, BulkString, error) {
 	i, err := readInt(reader)
-    if err != nil {
-        return BulkStringType, BulkString(nil), err
-    }
+	if err != nil {
+		return BulkStringType, BulkString(nil), err
+	}
 
-    if i == -1 {
+	if i == -1 {
 		return BulkStringType, BulkString(nil), nil
 	}
 
 	b, err := reader.Peek(int(i))
-    if err != nil {
-        return BulkStringType, BulkString(nil), err
-    }
-    reader.Discard(int(i) + 2)  // +2 for \r\n
+	if err != nil {
+		return BulkStringType, BulkString(nil), err
+	}
+	reader.Discard(int(i) + 2) // +2 for \r\n
 
 	return BulkStringType, BulkString(b), nil
 }
 
 func parseArray(reader *bufio.Reader) (RESPType, Array, error) {
-    i, err := readInt(reader)
-    if err != nil {
-        return ArrayType, Array(nil), err
-    }
+	i, err := readInt(reader)
+	if err != nil {
+		return ArrayType, Array(nil), err
+	}
 
-    if i == -1 {
-        return ArrayType, Array(nil), nil
-    }
+	if i == -1 {
+		return ArrayType, Array(nil), nil
+	}
 
-    arr := make(Array, i)
+	arr := make(Array, i)
 	for i := range arr {
-        _, v, err := Parse(reader)
-        if err != nil {
-            return ArrayType, Array(nil), err
-        }
+		_, v, err := Parse(reader)
+		if err != nil {
+			return ArrayType, Array(nil), err
+		}
 		arr[i] = v
 	}
 	return ArrayType, arr, nil

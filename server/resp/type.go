@@ -6,18 +6,19 @@
 package resp
 
 import (
-    "bytes"
-    "fmt"
+	"bytes"
+	"fmt"
 )
 
 type RESPType int
+
 const (
-    WrongType        = iota     // wrong input
-    SimpleStringType
-    ErrorType
-    IntegerType
-    BulkStringType
-    ArrayType
+	WrongType = iota // wrong input
+	SimpleStringType
+	ErrorType
+	IntegerType
+	BulkStringType
+	ArrayType
 )
 
 type Value interface {
@@ -26,7 +27,8 @@ type Value interface {
 
 // RESP SimpleString
 type SimpleString string
-const OkSimpleString  = SimpleString("OK")
+
+const OkSimpleString = SimpleString("OK")
 const PongSimpleString = SimpleString("PONG")
 
 func (s SimpleString) WriteTo(w *bytes.Buffer) error {
@@ -40,9 +42,11 @@ func (s SimpleString) String() string {
 
 // RESP Integer
 type Integer int64
+
 const (
-    ZeroInteger = Integer(0)
-    OneInteger = Integer(1)
+	ZeroInteger        = Integer(0)
+	OneInteger         = Integer(1)
+	NegativeOneInteger = Integer(-1)
 )
 
 func (i Integer) WriteTo(w *bytes.Buffer) error {
@@ -54,7 +58,7 @@ func (i Integer) WriteTo(w *bytes.Buffer) error {
 type Error string
 
 func NewError(format string, v ...interface{}) Error {
-    return Error(fmt.Sprintf(format, v...))
+	return Error(fmt.Sprintf(format, v...))
 }
 
 func (e Error) Error() string {
@@ -68,9 +72,10 @@ func (e Error) WriteTo(w *bytes.Buffer) error {
 
 // RESP Bulk String
 type BulkString []byte
+
 var (
-    NilBulkString = BulkString(nil)
-    EmptyBulkString = BulkString([]byte(""))
+	NilBulkString   = BulkString(nil)
+	EmptyBulkString = BulkString([]byte(""))
 )
 
 func (b BulkString) WriteTo(w *bytes.Buffer) error {
@@ -90,11 +95,11 @@ func (b BulkString) WriteTo(w *bytes.Buffer) error {
 }
 
 func (b BulkString) String() string {
-    if b == nil {
-        return ""
-    }
+	if b == nil {
+		return ""
+	}
 
-    return string(b)
+	return string(b)
 }
 
 // RESP Array
@@ -107,13 +112,13 @@ func (a Array) WriteTo(w *bytes.Buffer) error {
 	}
 
 	if _, err := fmt.Fprintf(w, "*%d\r\n", len(a)); err != nil {
-        return err
-    }
+		return err
+	}
 
 	for _, v := range a {
 		if err := v.WriteTo(w); err != nil {
-            return err
-        }
+			return err
+		}
 	}
 
 	return nil
@@ -122,9 +127,9 @@ func (a Array) WriteTo(w *bytes.Buffer) error {
 type CommandArgs []BulkString
 
 func (a Array) ToArgs() CommandArgs {
-    c := make(CommandArgs, len(a))
-    for i, v := range a {
-        c[i] = v.(BulkString)
-    }
-    return c
+	c := make(CommandArgs, len(a))
+	for i, v := range a {
+		c[i] = v.(BulkString)
+	}
+	return c
 }

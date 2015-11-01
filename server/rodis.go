@@ -6,41 +6,44 @@
 package main
 
 import (
-    "flag"
-    "os"
-    "os/signal"
-    "syscall"
+	"flag"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
 
-    "github.com/rod6/log6"
+	"github.com/rod6/log6"
 
-    "github.com/rod6/rodis/server/config"
-    "github.com/rod6/rodis/server/storage"
-    "github.com/rod6/rodis/server/net"
+	"github.com/rod6/rodis/server/config"
+	"github.com/rod6/rodis/server/net"
+	"github.com/rod6/rodis/server/storage"
 )
 
 func main() {
-    configFile := flag.String("c", "rodis.toml", "Rodis config file path")
-    flag.Parse()
+	configFile := flag.String("c", "rodis.toml", "Rodis config file path")
+	flag.Parse()
 
-    if err := config.LoadConfig(*configFile); err != nil {
-        log6.Fatal("Load/Parse config file error: %v", err)
-    }
-    log6.ParseLevel(config.Config.LogLevel)
+	if err := config.LoadConfig(*configFile); err != nil {
+		log6.Fatal("Load/Parse config file error: %v", err)
+	}
+	log6.ParseLevel(config.Config.LogLevel)
 
-    err := storage.OpenStorage(config.Config.LevelDBPath, config.Config.LevelDB)
-    if err != nil {
-        log6.Fatal("Open storage error: %v", err)
-    }
-    defer storage.CloseStorage()
+	runtime.GOMAXPROCS(runtime.NumCPU())
 
-    rs, err := net.NewServer(config.Config)
-    if err != nil {
-        log6.Fatal("New server error: %v", err)
-    }
+	err := storage.OpenStorage(config.Config.LevelDBPath, config.Config.LevelDB)
+	if err != nil {
+		log6.Fatal("Open storage error: %v", err)
+	}
+	defer storage.CloseStorage()
 
-    defer rs.Close()
+	rs, err := net.NewServer(config.Config)
+	if err != nil {
+		log6.Fatal("New server error: %v", err)
+	}
 
-    sc := make(chan os.Signal, 1)
+	defer rs.Close()
+
+	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	go rs.Run()
