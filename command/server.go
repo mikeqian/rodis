@@ -7,7 +7,7 @@
 package command
 
 import (
-	"github.com/rod6/rodis/server/resp"
+	"github.com/rod6/rodis/resp"
 )
 
 func flushdb(v resp.CommandArgs, ex *CommandExtras) error {

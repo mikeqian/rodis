@@ -11,7 +11,7 @@ import (
 
 	"github.com/rod6/log6"
 
-	"github.com/rod6/rodis/server/config"
+	"github.com/rod6/rodis/config"
 )
 
 type rodisServer struct {

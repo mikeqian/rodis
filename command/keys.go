@@ -7,8 +7,9 @@
 package command
 
 import (
-	"github.com/rod6/rodis/server/resp"
 	"github.com/syndtr/goleveldb/leveldb"
+
+	"github.com/rod6/rodis/resp"
 )
 
 // Implement for command list in http://redis.io/commands#generic

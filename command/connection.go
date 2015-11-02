@@ -7,8 +7,8 @@
 package command
 
 import (
-	"github.com/rod6/rodis/server/resp"
-	"github.com/rod6/rodis/server/storage"
+	"github.com/rod6/rodis/resp"
+	"github.com/rod6/rodis/storage"
 	"strconv"
 )
 

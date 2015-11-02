@@ -13,7 +13,7 @@ import (
 	"github.com/rod6/log6"
 	"github.com/syndtr/goleveldb/leveldb"
 
-	"github.com/rod6/rodis/server/resp"
+	"github.com/rod6/rodis/resp"
 )
 
 // Implement for command list in http://redis.io/commands#string

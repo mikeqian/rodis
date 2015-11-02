@@ -14,9 +14,9 @@ import (
 
 	"github.com/rod6/log6"
 
-	"github.com/rod6/rodis/server/config"
-	"github.com/rod6/rodis/server/net"
-	"github.com/rod6/rodis/server/storage"
+	"github.com/rod6/rodis/config"
+	"github.com/rod6/rodis/net"
+	"github.com/rod6/rodis/storage"
 )
 
 func main() {

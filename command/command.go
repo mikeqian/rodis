@@ -14,8 +14,8 @@ import (
 
 	"github.com/rod6/log6"
 
-	"github.com/rod6/rodis/server/resp"
-	"github.com/rod6/rodis/server/storage"
+	"github.com/rod6/rodis/resp"
+	"github.com/rod6/rodis/storage"
 )
 
 type CommandExtras struct {

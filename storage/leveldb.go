@@ -6,9 +6,10 @@
 package storage
 
 import (
+	"sync"
+
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
-	"sync"
 )
 
 type LevelDB struct {
