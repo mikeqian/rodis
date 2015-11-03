@@ -413,7 +413,7 @@ func TestSetrange(t *testing.T) {
 		{[]interface{}{"setrange", "a", "-10", "abc"}, replyType{"Error", "ERR offset is out of range"}},
 		{[]interface{}{"setrange", "a", "10", "abc"}, replyType{"Integer", int64(13)}},
 		{[]interface{}{"get", "a"}, replyType{"BulkString", []byte("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00abc")}},
-		{[]interface{}{"setrange", "a", "536870910", "ab"}, replyType{"Integer", int64(536870912)}},
+		//{[]interface{}{"setrange", "a", "536870910", "ab"}, replyType{"Integer", int64(536870912)}},
 	}
 	runTest("SETRANGE", tests, t)
 }

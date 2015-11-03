@@ -7,8 +7,6 @@
 package command
 
 import (
-	"github.com/syndtr/goleveldb/leveldb"
-
 	"github.com/rod6/rodis/resp"
 )
 
@@ -24,17 +22,54 @@ func del(v resp.CommandArgs, ex *CommandExtras) error {
 
 	count := 0
 	for _, key := range v {
-		_, err := ex.DB.Get(key)
-		if err != nil && err != leveldb.ErrNotFound {
+		xkey, exists, _, _, err := ex.DB.Has(key)
+		if err != nil {
 			return err
 		}
-		if err == leveldb.ErrNotFound {
+		if !exists {
 			continue
 		}
-		if err := ex.DB.Delete(key); err != nil {
+		if err := ex.DB.DeleteX(xkey); err != nil {
 			return err
 		}
 		count++
 	}
 	return resp.Integer(count).WriteTo(ex.Buffer)
+}
+
+func exists(v resp.CommandArgs, ex *CommandExtras) error {
+	if len(v) == 0 {
+		return resp.NewError(ErrFmtWrongNumberArgument, "exists").WriteTo(ex.Buffer)
+	}
+
+	ex.DB.RLock()
+	defer ex.DB.RUnlock()
+
+	count := 0
+	for _, key := range v {
+		_, exists, _, _, err := ex.DB.Has(key)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			continue
+		}
+		count ++
+	}
+	return resp.Integer(count).WriteTo(ex.Buffer)
+}
+
+func tipe(v resp.CommandArgs, ex *CommandExtras) error {
+	ex.DB.RLock()
+	defer ex.DB.RUnlock()
+
+	_, exists, tipe, _, err := ex.DB.Has(v[0])
+	if err != nil {
+		return err
+	}
+
+	if !exists {
+		return resp.SimpleString(TypeString[None]).WriteTo(ex.Buffer)
+	}
+	return resp.SimpleString(TypeString[tipe]).WriteTo(ex.Buffer)
 }

@@ -10,9 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rod6/log6"
-	"github.com/syndtr/goleveldb/leveldb"
-
 	"github.com/rod6/rodis/resp"
 )
 
@@ -45,6 +42,7 @@ import (
 // STRLEN		done		rod
 //
 
+const STRLIMIT = 536870912  // 512M
 // strings.basic group, including set, get, getrange, setrange, append, strlen, setnx, setxx, getset
 func set(v resp.CommandArgs, ex *CommandExtras) error {
 	if len(v) <= 1 {
@@ -55,7 +53,7 @@ func set(v resp.CommandArgs, ex *CommandExtras) error {
 	defer ex.DB.Unlock()
 
 	if len(v) == 2 {
-		if err := ex.DB.Put(v[0], v[1]); err != nil {
+		if err := ex.DB.Put(v[0], v[1], String, false); err != nil {
 			return err
 		}
 		return resp.OkSimpleString.WriteTo(ex.Buffer)
@@ -96,29 +94,28 @@ func set(v resp.CommandArgs, ex *CommandExtras) error {
 		return resp.NilBulkString.WriteTo(ex.Buffer)
 	}
 
-	exist := true
-	if option_nx || option_xx {
-		_, err := ex.DB.Get(v[0])
-		if err == leveldb.ErrNotFound {
-			exist = false
-		}
-	}
-
-	if option_nx && exist {
-		return resp.NilBulkString.WriteTo(ex.Buffer)
-	}
-	if option_xx && !exist {
-		return resp.NilBulkString.WriteTo(ex.Buffer)
-	}
-
-	if err := ex.DB.Put(v[0], v[1]); err != nil {
+	xkey, exists, _, _, err := ex.DB.Has(v[0])
+	if err != nil {
 		return err
 	}
 
-	// TODO: ex/px
-	if false {
-		log6.Info("Set expire: %v.%v", expire_op, expire_val)
+	if option_nx && exists {
+		return resp.NilBulkString.WriteTo(ex.Buffer)
 	}
+	if option_xx && !exists {
+		return resp.NilBulkString.WriteTo(ex.Buffer)
+	}
+
+	if len(v[1]) > STRLIMIT {
+		return resp.NewError(ErrStringExccedLimit).WriteTo(ex.Buffer)
+	}
+
+	hasExpire := expire_op!=""
+	if err := ex.DB.PutX(xkey, v[0], v[1], String, hasExpire); err != nil {
+		return err
+	}
+	// use expire_val for avoid compile error
+	expire_val ++
 	return resp.OkSimpleString.WriteTo(ex.Buffer)
 }
 
@@ -126,12 +123,15 @@ func get(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
 
-	val, err := ex.DB.Get(v[0])
-	if err != nil && err != leveldb.ErrNotFound {
+	_, val, exists, tipe, _, err := ex.DB.Get(v[0])
+	if err != nil {
 		return err
 	}
-	if err == leveldb.ErrNotFound {
+	if !exists {
 		return resp.NilBulkString.WriteTo(ex.Buffer)
+	}
+	if tipe != String {
+		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
 	return resp.BulkString(val).WriteTo(ex.Buffer)
 }
@@ -141,17 +141,23 @@ func appendx(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	val, err := ex.DB.Get(v[0])
-	if err != nil && err != leveldb.ErrNotFound {
+	xkey, val, exists, tipe, hasExpire, err := ex.DB.Get(v[0])
+	if err != nil {
 		return err
 	}
 
-	if err == leveldb.ErrNotFound {
+	if !exists {
 		val = []byte("")
+	}
+	if exists && tipe != String {
+		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
+	}
+	if len(val) + len(v[1]) > STRLIMIT {
+		return resp.NewError(ErrStringExccedLimit).WriteTo(ex.Buffer)
 	}
 
 	val = append(val, v[1]...)
-	if err = ex.DB.Put(v[0], val); err != nil {
+	if err = ex.DB.PutX(xkey, v[0], val, String, hasExpire); err != nil {
 		return err
 	}
 	return resp.Integer(len(val)).WriteTo(ex.Buffer)
@@ -171,12 +177,15 @@ func getrange(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
 
-	val, err := ex.DB.Get(v[0])
-	if err != nil && err != leveldb.ErrNotFound {
+	_, val, exists, tipe, _, err := ex.DB.Get(v[0])
+	if err != nil {
 		return err
 	}
-	if err == leveldb.ErrNotFound {
+	if !exists {
 		return resp.EmptyBulkString.WriteTo(ex.Buffer)
+	}
+	if tipe != String {
+		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
 
 	start, end = calcRange(start, end, len(val))
@@ -203,16 +212,19 @@ func setrange(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	val, err := ex.DB.Get(v[0])
-	if err != nil && err != leveldb.ErrNotFound {
+	xkey, val, exists, tipe, hasExpire, err := ex.DB.Get(v[0])
+	if err != nil {
 		return err
+	}
+	if exists && tipe != String {
+		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
 	if len(val) < offset+len(v[2]) {
 		val = append(val, make([]byte, len(v[2])+offset-len(val))...)
 	}
 	copy(val[offset:], v[2])
 
-	if err = ex.DB.Put(v[0], val); err != nil {
+	if err = ex.DB.PutX(xkey, v[0], val, String, hasExpire); err != nil {
 		return err
 	}
 	return resp.Integer(len(val)).WriteTo(ex.Buffer)
@@ -222,33 +234,36 @@ func strlen(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
 
-	s, err := ex.DB.Get(v[0])
-	if err != nil && err != leveldb.ErrNotFound {
+	_, val, exists, tipe, _, err := ex.DB.Get(v[0])
+	if err != nil {
 		return err
 	}
-
-	val := int64(0)
-	if err == leveldb.ErrNotFound {
-		val = 0
-	} else {
-		val = int64(len(s))
+	if exists && tipe != String {
+		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
-	return resp.Integer(val).WriteTo(ex.Buffer)
+
+	length := int64(0)
+	if !exists {
+		length = 0
+	} else {
+		length = int64(len(val))
+	}
+	return resp.Integer(length).WriteTo(ex.Buffer)
 }
 
 func setnx(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	_, err := ex.DB.Get(v[0])
-	if err != nil && err != leveldb.ErrNotFound {
+	xkey, exists, _, _, err := ex.DB.Has(v[0])
+	if err != nil {
 		return err
 	}
-	if err == nil {
+	if exists {
 		return resp.ZeroInteger.WriteTo(ex.Buffer)
 	}
 
-	if err := ex.DB.Put(v[0], v[1]); err != nil {
+	if err := ex.DB.PutX(xkey, v[0], v[1], String, false); err != nil {
 		return err
 	}
 	return resp.OneInteger.WriteTo(ex.Buffer)
@@ -256,19 +271,26 @@ func setnx(v resp.CommandArgs, ex *CommandExtras) error {
 }
 
 func getset(v resp.CommandArgs, ex *CommandExtras) error {
+	if len(v[1]) > STRLIMIT {
+		return resp.NewError(ErrStringExccedLimit).WriteTo(ex.Buffer)
+	}
+
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	val, err_get := ex.DB.Get(v[0])
-	if err_get != nil && err_get != leveldb.ErrNotFound {
-		return err_get
+	xkey, val, exists, tipe, _, err := ex.DB.Get(v[0])
+	if err != nil {
+		return err
+	}
+	if exists && tipe != String {
+		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
 
-	if err := ex.DB.Put(v[0], v[1]); err != nil {
+	if err := ex.DB.PutX(xkey, v[0], v[1], String, false); err != nil {
 		return err
 	}
 
-	if err_get != nil && err_get == leveldb.ErrNotFound {
+	if !exists {
 		return resp.NilBulkString.WriteTo(ex.Buffer)
 	}
 	return resp.BulkString(val).WriteTo(ex.Buffer)
@@ -287,12 +309,12 @@ func mget(v resp.CommandArgs, ex *CommandExtras) error {
 	arr := make(resp.Array, len(v))
 
 	for i, g := range v {
-		val, err := ex.DB.Get(g)
+		_, val, exists, tipe, _, err := ex.DB.Get(g)
 
-		if err != nil && err != leveldb.ErrNotFound {
+		if err != nil {
 			return err
 		}
-		if err == leveldb.ErrNotFound {
+		if !exists || tipe != String {
 			arr[i] = resp.NilBulkString
 		} else {
 			arr[i] = resp.BulkString(val)
@@ -307,18 +329,16 @@ func mset(v resp.CommandArgs, ex *CommandExtras) error {
 		return resp.NewError(ErrFmtWrongNumberArgument, "mset").WriteTo(ex.Buffer)
 	}
 
-	batch := new(leveldb.Batch)
-	for i := 0; i < len(v); {
-		batch.Put(v[i], v[i+1])
-		i += 2
-	}
-
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	if err := ex.DB.WriteBatch(batch); err != nil {
-		return err
+	for i := 0; i < len(v); {
+		if err := ex.DB.Put(v[i], v[i+1], String, false); err != nil {
+			return err
+		}
+		i += 2
 	}
+
 	return resp.OkSimpleString.WriteTo(ex.Buffer)
 }
 
@@ -327,29 +347,27 @@ func msetnx(v resp.CommandArgs, ex *CommandExtras) error {
 		return resp.NewError(ErrFmtWrongNumberArgument, "msetnx").WriteTo(ex.Buffer)
 	}
 
-	batch := new(leveldb.Batch)
-	for i := 0; i < len(v); {
-		batch.Put(v[i], v[i+1])
-		i += 2
-	}
-
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
 	for i := 0; i < len(v); {
-		_, err := ex.DB.Get(v[i])
-		if err != nil && err != leveldb.ErrNotFound {
+		_, exists, _, _, err := ex.DB.Has(v[i])
+		if err != nil {
 			return err
 		}
-		if err != leveldb.ErrNotFound {
-			return resp.ZeroInteger.WriteTo(ex.Buffer)
+		if exists {
+			return resp.ZeroInteger.WriteTo(ex.Buffer)	// If any key exists, return 0
 		}
 		i += 2
 	}
 
-	if err := ex.DB.WriteBatch(batch); err != nil {
-		return err
+	for i := 0; i < len(v); {	// every key does not exist, put all into level db.
+		if err := ex.DB.PutX(nil, v[i], v[i+1], String, false); err != nil {
+			return err
+		}
+		i += 2
 	}
+
 	return resp.OneInteger.WriteTo(ex.Buffer)
 }
 
@@ -359,12 +377,15 @@ func getbit(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
 
-	val, err := ex.DB.Get(v[0])
-	if err != nil && err != leveldb.ErrNotFound {
+	_, val, exists, tipe, _, err := ex.DB.Get(v[0])
+	if err != nil {
 		return err
 	}
-	if err == leveldb.ErrNotFound {
+	if !exists {
 		return resp.ZeroInteger.WriteTo(ex.Buffer)
+	}
+	if tipe != String {
+		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
 
 	offset, err := strconv.Atoi(string(v[1]))
@@ -392,6 +413,10 @@ func setbit(v resp.CommandArgs, ex *CommandExtras) error {
 	pos := offset % 8
 	byten := offset / 8
 
+	if int(byten)+1 > STRLIMIT {
+		return resp.NewError(ErrStringExccedLimit).WriteTo(ex.Buffer)
+	}
+
 	bit, err := strconv.Atoi(string(v[2]))
 	if err != nil || bit != 0 && bit != 1 {
 		return resp.NewError(ErrBitValueInvalid).WriteTo(ex.Buffer)
@@ -400,9 +425,12 @@ func setbit(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	val, err := ex.DB.Get(v[0])
-	if err != nil && err != leveldb.ErrNotFound {
+	xkey, val, exists, tipe, hasExpire, err := ex.DB.Get(v[0])
+	if err != nil {
 		return err
+	}
+	if exists && tipe != String {
+		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
 
 	if uint32(len(val)) < byten+1 {
@@ -419,7 +447,7 @@ func setbit(v resp.CommandArgs, ex *CommandExtras) error {
 		set := byte(0x01 << (7 - pos))
 		val[byten] = val[byten] | set
 	}
-	if err := ex.DB.Put(v[0], val); err != nil {
+	if err := ex.DB.PutX(xkey, v[0], val, String, hasExpire); err != nil {
 		return err
 	}
 	return resp.Integer(k).WriteTo(ex.Buffer)
@@ -433,14 +461,17 @@ func bitcount(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
 
-	val, err := ex.DB.Get(v[0])
-	if err != nil && err != leveldb.ErrNotFound {
+	_, val, exists, tipe, _, err := ex.DB.Get(v[0])
+	if err != nil {
 		return err
 	}
-
-	if err == leveldb.ErrNotFound {
+	if !exists {
 		return resp.ZeroInteger.WriteTo(ex.Buffer)
 	}
+	if tipe != String {
+		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
+	}
+
 
 	if len(v) != 1 && len(v) != 3 {
 		return resp.NewError(ErrFmtSyntax).WriteTo(ex.Buffer)
@@ -489,19 +520,22 @@ func bitop(v resp.CommandArgs, ex *CommandExtras) error {
 		if len(v) > 3 {
 			return resp.NewError(ErrBitOPNotError).WriteTo(ex.Buffer)
 		}
-		src, err := ex.DB.Get(v[2])
-		if err != nil && err != leveldb.ErrNotFound {
+		_, val, exists, tipe, _, err := ex.DB.Get(v[2])
+		if err != nil {
 			return err
 		}
-		if err == leveldb.ErrNotFound {
+		if !exists {
 			return resp.ZeroInteger.WriteTo(ex.Buffer)
 		}
+		if exists && tipe != String {
+			return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
+		}
 
-		destValue := make([]byte, len(src))
-		for i, b := range src {
+		destValue := make([]byte, len(val))
+		for i, b := range val {
 			destValue[i] = ^b
 		}
-		if err := ex.DB.Put(v[1], destValue); err != nil {
+		if err := ex.DB.Put(v[1], destValue, String, false); err != nil {
 			return err
 		}
 		return resp.Integer(len(destValue)).WriteTo(ex.Buffer)
@@ -509,27 +543,25 @@ func bitop(v resp.CommandArgs, ex *CommandExtras) error {
 	case "or", "and", "xor":
 		var destValue []byte = nil
 		for _, b := range v[2:] {
-			found := true
-			src, err := ex.DB.Get(b)
-			if err != nil && err != leveldb.ErrNotFound {
+			_, val, exists, tipe, _, err := ex.DB.Get(b)
+			if err != nil {
 				return err
 			}
-			if err == leveldb.ErrNotFound {
-				found = false
+			if exists && tipe != String {
+				return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 			}
-
-			if found && len(destValue) < len(src) {
+			if exists && len(destValue) < len(val) {
 				if len(destValue) == 0 { // loop first step
-					destValue = append(destValue, src...)
+					destValue = append(destValue, val...)
 					continue
 				} else {
-					destValue = append(destValue, make([]byte, len(src)-len(destValue))...)
+					destValue = append(destValue, make([]byte, len(val)-len(destValue))...)
 				}
 			}
 			for i, _ := range destValue {
 				s := byte(0)
-				if found && i < len(src) {
-					s = src[i]
+				if exists && i < len(val) {
+					s = val[i]
 				}
 				switch op {
 				case "or":
@@ -541,7 +573,7 @@ func bitop(v resp.CommandArgs, ex *CommandExtras) error {
 				}
 			}
 		}
-		if err := ex.DB.Put(v[1], destValue); err != nil {
+		if err := ex.DB.Put(v[1], destValue, String, false); err != nil {
 			return err
 		}
 		return resp.Integer(len(destValue)).WriteTo(ex.Buffer)
@@ -567,17 +599,20 @@ func bitpos(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
 
-	val, err := ex.DB.Get(v[0])
-	if err != nil && err != leveldb.ErrNotFound {
+	_, val, exists, tipe, _, err := ex.DB.Get(v[0])
+	if err != nil {
 		return err
+	}
+	if exists && tipe != String {
+		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
 
 	// This is the same behavior as offical redis. Not sure why
 	// not check the len(v) when key is missing
-	if err == leveldb.ErrNotFound && set {
+	if !exists && set {
 		return resp.NegativeOneInteger.WriteTo(ex.Buffer)
 	}
-	if err == leveldb.ErrNotFound && clear {
+	if !exists && clear {
 		return resp.ZeroInteger.WriteTo(ex.Buffer)
 	}
 
@@ -689,23 +724,27 @@ func incrbyfloat(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	s, err := ex.DB.Get(v[0])
-	if err != nil && err != leveldb.ErrNotFound {
+	xkey, val, exists, tipe, hasExpire, err := ex.DB.Get(v[0])
+	if err != nil {
 		return err
 	}
-	val := 0.0
-	if err != nil && err == leveldb.ErrNotFound {
-		val += by
+	if exists && tipe != String {
+		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
+	}
+
+	newVal := 0.0
+	if !exists {
+		newVal += by
 	} else {
-		val, err = strconv.ParseFloat(string(s), 64)
+		newVal, err = strconv.ParseFloat(string(val), 64)
 		if err != nil {
 			return resp.NewError(ErrNotValidFloat).WriteTo(ex.Buffer)
 		}
-		val += by
+		newVal += by
 	}
 
-	s = []byte(strconv.FormatFloat(val, 'f', -1, 64))
-	if err = ex.DB.Put(v[0], s); err != nil {
+	s := []byte(strconv.FormatFloat(newVal, 'f', -1, 64))
+	if err = ex.DB.PutX(xkey, v[0], s, String, hasExpire); err != nil {
 		return err
 	}
 	return resp.BulkString(s).WriteTo(ex.Buffer)
@@ -798,23 +837,27 @@ func incrdecrHelper(v resp.CommandArgs, ex *CommandExtras, by int64) error {
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	s, err := ex.DB.Get(v[0])
-	if err != nil && err != leveldb.ErrNotFound {
+	xkey, val, exists, tipe, hasExpire, err := ex.DB.Get(v[0])
+	if err != nil {
 		return err
 	}
-	val := int64(0)
-	if err != nil && err == leveldb.ErrNotFound {
-		val += by
+	if exists && tipe != String {
+		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
+	}
+
+	newVal := int64(0)
+	if !exists {
+		newVal += by
 	} else {
-		val, err = strconv.ParseInt(string(s), 10, 64)
+		newVal, err = strconv.ParseInt(string(val), 10, 64)
 		if err != nil {
 			return resp.NewError(ErrNotValidInt).WriteTo(ex.Buffer)
 		}
-		val += by
+		newVal += by
 	}
 
-	if err = ex.DB.Put(v[0], []byte(strconv.FormatInt(val, 10))); err != nil {
+	if err = ex.DB.PutX(xkey, v[0], []byte(strconv.FormatInt(newVal, 10)), String, hasExpire); err != nil {
 		return err
 	}
-	return resp.Integer(val).WriteTo(ex.Buffer)
+	return resp.Integer(newVal).WriteTo(ex.Buffer)
 }
