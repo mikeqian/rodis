@@ -46,32 +46,32 @@ var commands = map[string]*attr{
 	"flushdb": &attr{flushdb, 1},
 
 	// strings
-	"append":      	&attr{appendx, 3},
-	"bitcount":    	&attr{bitcount, 0},
-	"bitop":       	&attr{bitop, 0},
-	"bitpos":      	&attr{bitpos, 0},
-	"decr":        	&attr{decr, 2},
-	"decrby":      	&attr{decrby, 3},
-	"get":         	&attr{get, 2},
-	"getbit":      	&attr{getbit, 3},
-	"getrange":    	&attr{getrange, 4},
-	"getset":      	&attr{getset, 3},
-	"incr":        	&attr{incr, 2},
-	"incrby":      	&attr{incrby, 3},
-	"incrbyfloat": 	&attr{incrbyfloat, 3},
-	"mget":        	&attr{mget, 0},
-	"mset":        	&attr{mset, 0},
-	"msetnx":      	&attr{msetnx, 0},
-	"set":         	&attr{set, 0},
-	"setbit":      	&attr{setbit, 4},
-	"setnx":       	&attr{setnx, 3},
-	"setrange":    	&attr{setrange, 4},
-	"strlen":      	&attr{strlen, 2},
+	"append":      &attr{appendx, 3},
+	"bitcount":    &attr{bitcount, 0},
+	"bitop":       &attr{bitop, 0},
+	"bitpos":      &attr{bitpos, 0},
+	"decr":        &attr{decr, 2},
+	"decrby":      &attr{decrby, 3},
+	"get":         &attr{get, 2},
+	"getbit":      &attr{getbit, 3},
+	"getrange":    &attr{getrange, 4},
+	"getset":      &attr{getset, 3},
+	"incr":        &attr{incr, 2},
+	"incrby":      &attr{incrby, 3},
+	"incrbyfloat": &attr{incrbyfloat, 3},
+	"mget":        &attr{mget, 0},
+	"mset":        &attr{mset, 0},
+	"msetnx":      &attr{msetnx, 0},
+	"set":         &attr{set, 0},
+	"setbit":      &attr{setbit, 4},
+	"setnx":       &attr{setnx, 3},
+	"setrange":    &attr{setrange, 4},
+	"strlen":      &attr{strlen, 2},
 
 	// keys
-	"del":			&attr{del, 0},
-	"exists":		&attr{exists, 0},
-	"type":			&attr{tipe, 2}, 
+	"del":    &attr{del, 0},
+	"exists": &attr{exists, 0},
+	"type":   &attr{tipe, 2},
 }
 
 // Get command handler
@@ -124,7 +124,7 @@ func humanArgs(args resp.CommandArgs) string {
 const (
 	ErrFmtNoCommand           = `ERR no command`
 	ErrFmtUnknownCommand      = `ERR unknown command '%s'`
-	ErrWrongType			  = `WRONGTYPE Operation against a key holding the wrong kind of value`
+	ErrWrongType              = `WRONGTYPE Operation against a key holding the wrong kind of value`
 	ErrFmtWrongNumberArgument = `ERR wrong number of arguments for '%s' command`
 	ErrFmtSyntax              = `ERR syntax error`
 	ErrAuthed                 = `NOAUTH Authentication required.`

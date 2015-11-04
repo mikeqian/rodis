@@ -346,7 +346,7 @@ func TestMsetnx(t *testing.T) {
 		{[]interface{}{"get", "b"}, replyType{"BulkString", []byte("2")}},
 		{[]interface{}{"get", "c"}, replyType{"BulkString", nil}},
 	}
-	runTest("MSET", tests, t)
+	runTest("MSETNX", tests, t)
 }
 
 func TestSet(t *testing.T) {

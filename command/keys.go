@@ -8,6 +8,7 @@ package command
 
 import (
 	"github.com/rod6/rodis/resp"
+	"github.com/rod6/rodis/storage"
 )
 
 // Implement for command list in http://redis.io/commands#generic
@@ -22,16 +23,11 @@ func del(v resp.CommandArgs, ex *CommandExtras) error {
 
 	count := 0
 	for _, key := range v {
-		xkey, exists, _, _, err := ex.DB.Has(key)
-		if err != nil {
-			return err
-		}
+		exists, _, _ := ex.DB.Has(key)
 		if !exists {
 			continue
 		}
-		if err := ex.DB.DeleteX(xkey); err != nil {
-			return err
-		}
+		ex.DB.Delete(key)
 		count++
 	}
 	return resp.Integer(count).WriteTo(ex.Buffer)
@@ -47,14 +43,11 @@ func exists(v resp.CommandArgs, ex *CommandExtras) error {
 
 	count := 0
 	for _, key := range v {
-		_, exists, _, _, err := ex.DB.Has(key)
-		if err != nil {
-			return err
-		}
+		exists, _, _ := ex.DB.Has(key)
 		if !exists {
 			continue
 		}
-		count ++
+		count++
 	}
 	return resp.Integer(count).WriteTo(ex.Buffer)
 }
@@ -63,13 +56,10 @@ func tipe(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
 
-	_, exists, tipe, _, err := ex.DB.Has(v[0])
-	if err != nil {
-		return err
-	}
+	exists, tipe, _ := ex.DB.Has(v[0])
 
 	if !exists {
-		return resp.SimpleString(TypeString[None]).WriteTo(ex.Buffer)
+		return resp.SimpleString(storage.TypeString[storage.None]).WriteTo(ex.Buffer)
 	}
-	return resp.SimpleString(TypeString[tipe]).WriteTo(ex.Buffer)
+	return resp.SimpleString(storage.TypeString[tipe]).WriteTo(ex.Buffer)
 }

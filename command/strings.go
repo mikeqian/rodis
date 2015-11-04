@@ -9,8 +9,10 @@ package command
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rod6/rodis/resp"
+	"github.com/rod6/rodis/storage"
 )
 
 // Implement for command list in http://redis.io/commands#string
@@ -42,7 +44,8 @@ import (
 // STRLEN		done		rod
 //
 
-const STRLIMIT = 536870912  // 512M
+const STRLIMIT = 536870912 // 512M
+
 // strings.basic group, including set, get, getrange, setrange, append, strlen, setnx, setxx, getset
 func set(v resp.CommandArgs, ex *CommandExtras) error {
 	if len(v) <= 1 {
@@ -53,9 +56,7 @@ func set(v resp.CommandArgs, ex *CommandExtras) error {
 	defer ex.DB.Unlock()
 
 	if len(v) == 2 {
-		if err := ex.DB.Put(v[0], v[1], String, false); err != nil {
-			return err
-		}
+		ex.DB.PutString(v[0], v[1], nil)
 		return resp.OkSimpleString.WriteTo(ex.Buffer)
 	}
 
@@ -94,28 +95,26 @@ func set(v resp.CommandArgs, ex *CommandExtras) error {
 		return resp.NilBulkString.WriteTo(ex.Buffer)
 	}
 
-	xkey, exists, _, _, err := ex.DB.Has(v[0])
-	if err != nil {
-		return err
-	}
-
+	exists, _, _ := ex.DB.Has(v[0])
 	if option_nx && exists {
 		return resp.NilBulkString.WriteTo(ex.Buffer)
 	}
 	if option_xx && !exists {
 		return resp.NilBulkString.WriteTo(ex.Buffer)
 	}
-
 	if len(v[1]) > STRLIMIT {
 		return resp.NewError(ErrStringExccedLimit).WriteTo(ex.Buffer)
 	}
 
-	hasExpire := expire_op!=""
-	if err := ex.DB.PutX(xkey, v[0], v[1], String, hasExpire); err != nil {
-		return err
+	var expireAt time.Time
+	switch expire_op {
+	case "ex":
+		expireAt = time.Now().Add(time.Duration(expire_val) * time.Second)
+	case "px":
+		expireAt = time.Now().Add(time.Duration(expire_val) * time.Millisecond)
 	}
-	// use expire_val for avoid compile error
-	expire_val ++
+
+	ex.DB.PutString(v[0], v[1], &expireAt)
 	return resp.OkSimpleString.WriteTo(ex.Buffer)
 }
 
@@ -123,16 +122,14 @@ func get(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
 
-	_, val, exists, tipe, _, err := ex.DB.Get(v[0])
-	if err != nil {
-		return err
-	}
+	exists, tipe, _ := ex.DB.Has(v[0])
 	if !exists {
 		return resp.NilBulkString.WriteTo(ex.Buffer)
 	}
-	if tipe != String {
+	if tipe != storage.String {
 		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
+	val := ex.DB.GetString(v[0])
 	return resp.BulkString(val).WriteTo(ex.Buffer)
 }
 
@@ -141,25 +138,21 @@ func appendx(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	xkey, val, exists, tipe, hasExpire, err := ex.DB.Get(v[0])
-	if err != nil {
-		return err
-	}
-
-	if !exists {
-		val = []byte("")
-	}
-	if exists && tipe != String {
+	exists, tipe, expireAt := ex.DB.Has(v[0])
+	if exists && tipe != storage.String {
 		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
-	if len(val) + len(v[1]) > STRLIMIT {
+
+	val := []byte("")
+	if exists {
+		val = ex.DB.GetString(v[0])
+	}
+	if len(val)+len(v[1]) > STRLIMIT {
 		return resp.NewError(ErrStringExccedLimit).WriteTo(ex.Buffer)
 	}
 
 	val = append(val, v[1]...)
-	if err = ex.DB.PutX(xkey, v[0], val, String, hasExpire); err != nil {
-		return err
-	}
+	ex.DB.PutString(v[0], val, expireAt)
 	return resp.Integer(len(val)).WriteTo(ex.Buffer)
 }
 
@@ -177,17 +170,15 @@ func getrange(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
 
-	_, val, exists, tipe, _, err := ex.DB.Get(v[0])
-	if err != nil {
-		return err
-	}
+	exists, tipe, _ := ex.DB.Has(v[0])
 	if !exists {
 		return resp.EmptyBulkString.WriteTo(ex.Buffer)
 	}
-	if tipe != String {
+	if tipe != storage.String {
 		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
 
+	val := ex.DB.GetString(v[0])
 	start, end = calcRange(start, end, len(val))
 	if end <= start {
 		return resp.EmptyBulkString.WriteTo(ex.Buffer)
@@ -212,21 +203,22 @@ func setrange(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	xkey, val, exists, tipe, hasExpire, err := ex.DB.Get(v[0])
-	if err != nil {
-		return err
-	}
-	if exists && tipe != String {
+	exists, tipe, expireAt := ex.DB.Has(v[0])
+	if exists && tipe != storage.String {
 		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
+
+	val := []byte("")
+	if exists {
+		val = ex.DB.GetString(v[0])
+	}
+
 	if len(val) < offset+len(v[2]) {
 		val = append(val, make([]byte, len(v[2])+offset-len(val))...)
 	}
 	copy(val[offset:], v[2])
 
-	if err = ex.DB.PutX(xkey, v[0], val, String, hasExpire); err != nil {
-		return err
-	}
+	ex.DB.PutString(v[0], val, expireAt)
 	return resp.Integer(len(val)).WriteTo(ex.Buffer)
 }
 
@@ -234,38 +226,28 @@ func strlen(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
 
-	_, val, exists, tipe, _, err := ex.DB.Get(v[0])
-	if err != nil {
-		return err
+	exists, tipe, _ := ex.DB.Has(v[0])
+	if !exists {
+		return resp.ZeroInteger.WriteTo(ex.Buffer)
 	}
-	if exists && tipe != String {
+	if tipe != storage.String {
 		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
 
-	length := int64(0)
-	if !exists {
-		length = 0
-	} else {
-		length = int64(len(val))
-	}
-	return resp.Integer(length).WriteTo(ex.Buffer)
+	val := ex.DB.GetString(v[0])
+	return resp.Integer(len(val)).WriteTo(ex.Buffer)
 }
 
 func setnx(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	xkey, exists, _, _, err := ex.DB.Has(v[0])
-	if err != nil {
-		return err
-	}
+	exists, _, _ := ex.DB.Has(v[0])
 	if exists {
 		return resp.ZeroInteger.WriteTo(ex.Buffer)
 	}
 
-	if err := ex.DB.PutX(xkey, v[0], v[1], String, false); err != nil {
-		return err
-	}
+	ex.DB.PutString(v[0], v[1], nil)
 	return resp.OneInteger.WriteTo(ex.Buffer)
 
 }
@@ -278,22 +260,21 @@ func getset(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	xkey, val, exists, tipe, _, err := ex.DB.Get(v[0])
-	if err != nil {
-		return err
-	}
-	if exists && tipe != String {
+	exists, tipe, expireAt := ex.DB.Has(v[0])
+	if exists && tipe != storage.String {
 		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
-
-	if err := ex.DB.PutX(xkey, v[0], v[1], String, false); err != nil {
-		return err
+	var oldValue []byte
+	if exists {
+		oldValue = ex.DB.GetString(v[0])
 	}
+
+	ex.DB.PutString(v[0], v[1], expireAt)
 
 	if !exists {
 		return resp.NilBulkString.WriteTo(ex.Buffer)
 	}
-	return resp.BulkString(val).WriteTo(ex.Buffer)
+	return resp.BulkString(oldValue).WriteTo(ex.Buffer)
 }
 
 // strings.multi, includng mget, mset, msetnx
@@ -307,16 +288,12 @@ func mget(v resp.CommandArgs, ex *CommandExtras) error {
 	defer ex.DB.RUnlock()
 
 	arr := make(resp.Array, len(v))
-
 	for i, g := range v {
-		_, val, exists, tipe, _, err := ex.DB.Get(g)
-
-		if err != nil {
-			return err
-		}
-		if !exists || tipe != String {
+		exists, tipe, _ := ex.DB.Has(g)
+		if !exists || tipe != storage.String {
 			arr[i] = resp.NilBulkString
 		} else {
+			val := ex.DB.GetString(g)
 			arr[i] = resp.BulkString(val)
 		}
 	}
@@ -333,9 +310,7 @@ func mset(v resp.CommandArgs, ex *CommandExtras) error {
 	defer ex.DB.Unlock()
 
 	for i := 0; i < len(v); {
-		if err := ex.DB.Put(v[i], v[i+1], String, false); err != nil {
-			return err
-		}
+		ex.DB.PutString(v[i], v[i+1], nil)
 		i += 2
 	}
 
@@ -351,20 +326,15 @@ func msetnx(v resp.CommandArgs, ex *CommandExtras) error {
 	defer ex.DB.Unlock()
 
 	for i := 0; i < len(v); {
-		_, exists, _, _, err := ex.DB.Has(v[i])
-		if err != nil {
-			return err
-		}
+		exists, _, _ := ex.DB.Has(v[i])
 		if exists {
-			return resp.ZeroInteger.WriteTo(ex.Buffer)	// If any key exists, return 0
+			return resp.ZeroInteger.WriteTo(ex.Buffer) // If any key exists, return 0
 		}
 		i += 2
 	}
 
-	for i := 0; i < len(v); {	// every key does not exist, put all into level db.
-		if err := ex.DB.PutX(nil, v[i], v[i+1], String, false); err != nil {
-			return err
-		}
+	for i := 0; i < len(v); { // every key does not exist, put all into level db.
+		ex.DB.PutString(v[i], v[i+1], nil)
 		i += 2
 	}
 
@@ -377,16 +347,15 @@ func getbit(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
 
-	_, val, exists, tipe, _, err := ex.DB.Get(v[0])
-	if err != nil {
-		return err
-	}
+	exists, tipe, _ := ex.DB.Has(v[0])
 	if !exists {
 		return resp.ZeroInteger.WriteTo(ex.Buffer)
 	}
-	if tipe != String {
+	if tipe != storage.String {
 		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
+
+	val := ex.DB.GetString(v[0])
 
 	offset, err := strconv.Atoi(string(v[1]))
 	if err != nil {
@@ -425,12 +394,14 @@ func setbit(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	xkey, val, exists, tipe, hasExpire, err := ex.DB.Get(v[0])
-	if err != nil {
-		return err
-	}
-	if exists && tipe != String {
+	exists, tipe, expireAt := ex.DB.Has(v[0])
+	if exists && tipe != storage.String {
 		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
+	}
+
+	val := []byte("")
+	if exists {
+		val = ex.DB.GetString(v[0])
 	}
 
 	if uint32(len(val)) < byten+1 {
@@ -447,9 +418,8 @@ func setbit(v resp.CommandArgs, ex *CommandExtras) error {
 		set := byte(0x01 << (7 - pos))
 		val[byten] = val[byten] | set
 	}
-	if err := ex.DB.PutX(xkey, v[0], val, String, hasExpire); err != nil {
-		return err
-	}
+
+	ex.DB.PutString(v[0], val, expireAt)
 	return resp.Integer(k).WriteTo(ex.Buffer)
 }
 
@@ -461,24 +431,23 @@ func bitcount(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
 
-	_, val, exists, tipe, _, err := ex.DB.Get(v[0])
-	if err != nil {
-		return err
-	}
+	exists, tipe, _ := ex.DB.Has(v[0])
 	if !exists {
 		return resp.ZeroInteger.WriteTo(ex.Buffer)
 	}
-	if tipe != String {
+	if tipe != storage.String {
 		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
-
 
 	if len(v) != 1 && len(v) != 3 {
 		return resp.NewError(ErrFmtSyntax).WriteTo(ex.Buffer)
 	}
 
+	val := ex.DB.GetString(v[0])
+
 	start := 0
 	end := len(val)
+	var err error
 
 	if len(v) == 3 {
 		start, err = strconv.Atoi(string(v[1]))
@@ -520,36 +489,31 @@ func bitop(v resp.CommandArgs, ex *CommandExtras) error {
 		if len(v) > 3 {
 			return resp.NewError(ErrBitOPNotError).WriteTo(ex.Buffer)
 		}
-		_, val, exists, tipe, _, err := ex.DB.Get(v[2])
-		if err != nil {
-			return err
-		}
+		exists, tipe, _ := ex.DB.Has(v[2])
 		if !exists {
 			return resp.ZeroInteger.WriteTo(ex.Buffer)
 		}
-		if exists && tipe != String {
+		if exists && tipe != storage.String {
 			return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 		}
 
+		val := ex.DB.GetString(v[2])
 		destValue := make([]byte, len(val))
 		for i, b := range val {
 			destValue[i] = ^b
 		}
-		if err := ex.DB.Put(v[1], destValue, String, false); err != nil {
-			return err
-		}
+
+		ex.DB.PutString(v[1], destValue, nil)
 		return resp.Integer(len(destValue)).WriteTo(ex.Buffer)
 
 	case "or", "and", "xor":
 		var destValue []byte = nil
 		for _, b := range v[2:] {
-			_, val, exists, tipe, _, err := ex.DB.Get(b)
-			if err != nil {
-				return err
-			}
-			if exists && tipe != String {
+			exists, tipe, _ := ex.DB.Has(b)
+			if exists && tipe != storage.String {
 				return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 			}
+			val := ex.DB.GetString(b)
 			if exists && len(destValue) < len(val) {
 				if len(destValue) == 0 { // loop first step
 					destValue = append(destValue, val...)
@@ -573,9 +537,7 @@ func bitop(v resp.CommandArgs, ex *CommandExtras) error {
 				}
 			}
 		}
-		if err := ex.DB.Put(v[1], destValue, String, false); err != nil {
-			return err
-		}
+		ex.DB.PutString(v[1], destValue, nil)
 		return resp.Integer(len(destValue)).WriteTo(ex.Buffer)
 
 	default:
@@ -599,11 +561,8 @@ func bitpos(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
 
-	_, val, exists, tipe, _, err := ex.DB.Get(v[0])
-	if err != nil {
-		return err
-	}
-	if exists && tipe != String {
+	exists, tipe, _ := ex.DB.Has(v[0])
+	if exists && tipe != storage.String {
 		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
 
@@ -621,6 +580,7 @@ func bitpos(v resp.CommandArgs, ex *CommandExtras) error {
 		return resp.NewError(ErrFmtSyntax).WriteTo(ex.Buffer)
 	}
 
+	val := ex.DB.GetString(v[0])
 	// Get the range.
 	start := 0
 	end := len(val)
@@ -724,11 +684,8 @@ func incrbyfloat(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	xkey, val, exists, tipe, hasExpire, err := ex.DB.Get(v[0])
-	if err != nil {
-		return err
-	}
-	if exists && tipe != String {
+	exists, tipe, expireAt := ex.DB.Has(v[0])
+	if exists && tipe != storage.String {
 		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
 
@@ -736,17 +693,16 @@ func incrbyfloat(v resp.CommandArgs, ex *CommandExtras) error {
 	if !exists {
 		newVal += by
 	} else {
-		newVal, err = strconv.ParseFloat(string(val), 64)
+		val := ex.DB.GetString(v[0])
+		f, err := strconv.ParseFloat(string(val), 64)
 		if err != nil {
 			return resp.NewError(ErrNotValidFloat).WriteTo(ex.Buffer)
 		}
-		newVal += by
+		newVal = f + by
 	}
 
 	s := []byte(strconv.FormatFloat(newVal, 'f', -1, 64))
-	if err = ex.DB.PutX(xkey, v[0], s, String, hasExpire); err != nil {
-		return err
-	}
+	ex.DB.PutString(v[0], s, expireAt)
 	return resp.BulkString(s).WriteTo(ex.Buffer)
 }
 
@@ -837,11 +793,8 @@ func incrdecrHelper(v resp.CommandArgs, ex *CommandExtras, by int64) error {
 	ex.DB.Lock()
 	defer ex.DB.Unlock()
 
-	xkey, val, exists, tipe, hasExpire, err := ex.DB.Get(v[0])
-	if err != nil {
-		return err
-	}
-	if exists && tipe != String {
+	exists, tipe, expireAt := ex.DB.Has(v[0])
+	if exists && tipe != storage.String {
 		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
 
@@ -849,15 +802,14 @@ func incrdecrHelper(v resp.CommandArgs, ex *CommandExtras, by int64) error {
 	if !exists {
 		newVal += by
 	} else {
-		newVal, err = strconv.ParseInt(string(val), 10, 64)
+		val := ex.DB.GetString(v[0])
+		i, err := strconv.ParseInt(string(val), 10, 64)
 		if err != nil {
 			return resp.NewError(ErrNotValidInt).WriteTo(ex.Buffer)
 		}
-		newVal += by
+		newVal = i + by
 	}
 
-	if err = ex.DB.PutX(xkey, v[0], []byte(strconv.FormatInt(newVal, 10)), String, hasExpire); err != nil {
-		return err
-	}
+	ex.DB.PutString(v[0], []byte(strconv.FormatInt(newVal, 10)), expireAt)
 	return resp.Integer(newVal).WriteTo(ex.Buffer)
 }
