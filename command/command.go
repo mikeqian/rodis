@@ -68,6 +68,21 @@ var commands = map[string]*attr{
 	"setrange":    &attr{setrange, 4},
 	"strlen":      &attr{strlen, 2},
 
+	// hashes
+	"hdel":         &attr{hdel, 0},
+	"hexists":      &attr{hexists, 3},
+	"hget":         &attr{hget, 3},
+	"hgetall":      &attr{hgetall, 2},
+	"hincrby":      &attr{hincrby, 4},
+	"hincrbyfloat": &attr{hincrbyfloat, 4},
+	"hkeys":        &attr{hkeys, 2},
+	"hlen":         &attr{hlen, 2},
+	"hmget":        &attr{hmget, 0},
+	"hmset":        &attr{hmset, 0},
+	"hset":         &attr{hset, 4},
+	"hsetnx":       &attr{hsetnx, 4},
+	"hstrlen":      &attr{hstrlen, 3},
+	"hvals":        &attr{hvals, 2},
 	// keys
 	"del":    &attr{del, 0},
 	"exists": &attr{exists, 0},

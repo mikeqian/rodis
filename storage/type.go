@@ -103,8 +103,17 @@ func parseMetadata(metadata []byte) (byte, *time.Time, error) {
 }
 
 func encodeStringKey(key []byte) []byte {
-	valueKey := make([]byte, len(key)+1)
+	valueKey := make([]byte, 1 /* '+' */ +len(key))
 	valueKey[0] = ValuePrefix
 	copy(valueKey[1:], key)
 	return valueKey
+}
+
+func encodeHashFieldKey(key []byte, field []byte) []byte {
+	fieldKey := make([]byte, 1 /* '-' */ +len(key)+1 /* '|' */ +len(field))
+	fieldKey[0] = ValuePrefix
+	copy(fieldKey[1:], key)
+	fieldKey[1+len(key)] = Seperator
+	copy(fieldKey[1+len(key)+1:], field)
+	return fieldKey
 }

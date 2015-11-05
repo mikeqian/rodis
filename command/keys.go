@@ -23,11 +23,17 @@ func del(v resp.CommandArgs, ex *CommandExtras) error {
 
 	count := 0
 	for _, key := range v {
-		exists, _, _ := ex.DB.Has(key)
+		exists, tipe, _ := ex.DB.Has(key)
 		if !exists {
 			continue
 		}
-		ex.DB.Delete(key)
+		switch tipe {
+		case storage.String:
+			ex.DB.DeleteString(key)
+		case storage.Hash:
+			ex.DB.DeleteHash(key)
+		}
+
 		count++
 	}
 	return resp.Integer(count).WriteTo(ex.Buffer)

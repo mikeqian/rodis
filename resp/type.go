@@ -105,6 +105,8 @@ func (b BulkString) String() string {
 // RESP Array
 type Array []Value
 
+var EmptyArray = Array{}
+
 func (a Array) WriteTo(w *bytes.Buffer) error {
 	if a == nil {
 		_, err := fmt.Fprintf(w, "*-1\r\n")
