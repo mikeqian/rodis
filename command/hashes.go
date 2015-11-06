@@ -44,12 +44,17 @@ func hdel(v resp.CommandArgs, ex *CommandExtras) error {
 		}
 	}
 	ex.DB.DeleteHashFields(v[0], fields)
-	return resp.Integer(len(fields)).WriteTo(ex.Buffer)
+	return resp.Integer(count).WriteTo(ex.Buffer)
 }
 
 func hexists(v resp.CommandArgs, ex *CommandExtras) error {
 	ex.DB.RLock()
 	defer ex.DB.RUnlock()
+
+	keyExists, tipe, _ := ex.DB.Has(v[0])
+	if keyExists && tipe != storage.Hash {
+		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
+	}
 
 	hash := ex.DB.GetHashFields(v[0], [][]byte{v[1]})
 	if hash[string(v[1])] == nil {
