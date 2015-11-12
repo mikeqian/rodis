@@ -135,3 +135,11 @@ func (a Array) ToArgs() CommandArgs {
 	}
 	return c
 }
+
+func (args CommandArgs) ToBytes() [][]byte {
+	c := make([][]byte, len(args))
+	for i, v := range args {
+		c[i] = v
+	}
+	return c
+}
