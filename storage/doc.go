@@ -15,10 +15,23 @@
 // Metadata format:
 //      first byte: meta data version
 //      second byte: lower 4 bits: RedisType, upper 4 bits: if has expire value
-//      3rd - 18the: the time binary, represent the expire time.
+//      3rd - 18th: the time binary, represent the expire time.
 // Valuekey always has a prefix: '-'. For hash/set data type, use seperator '|' to seperate the
-// valuekey and inner element key.
-//      String Type: '-' + rKey
-//      Hash/Set/SortedSet: '-' + rKey + '|' + elementKey
 //
+// String Type:
+//      +StringKey   -> metadata
+//      -StringKey|  -> string value
+//
+// Hash Type:
+//      +HashKey        -> metadata
+//      -HashKey|Field1 -> value1
+//      -HashKey|Field2 -> value2
+//      -HashKey|Field3 -> value3
+//
+// List Type:
+//      +ListKey            -> metadata
+//      -ListKey|0x0000     -> start, len
+//      -ListKey|0x00000000 -> 0
+//      -ListKey|0x00000001 -> 1
+
 package storage

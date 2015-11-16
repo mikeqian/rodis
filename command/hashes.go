@@ -235,10 +235,7 @@ func hmget(v resp.CommandArgs, ex *CommandExtras) error {
 		return resp.NewError(ErrWrongType).WriteTo(ex.Buffer)
 	}
 
-	fields := [][]byte{}
-	for _, field := range v[1:] {
-		fields = append(fields, []byte(field))
-	}
+	fields := v[1:].ToBytes()
 	hash := ex.DB.GetHashFields(v[0], fields)
 
 	arr := resp.Array{}
